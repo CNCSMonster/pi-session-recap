@@ -60,8 +60,8 @@ Recap side-query cache key：
 
 ### 2.4 模型选择
 
-按优先级回退：`google/gemini-2.5-flash` → `openai/gpt-4.1-mini` → `anthropic/claude-3-5-haiku-20241022`。
-选择第一个已配置认证的可用模型（轻量、便宜、快）。
+按优先级回退：`google/gemini-2.5-flash` → `openai/gpt-4.1-mini` → `anthropic/claude-3-5-haiku-20241022` → **当前会话模型**。
+前三个取第一个已配置认证的可用模型（轻量、便宜、快）；全部缺失时兑底当前会话模型，保证任何 provider 配置下 recap 都可用。
 
 ---
 
@@ -74,7 +74,7 @@ Recap side-query cache key：
 ### 3.2 自动：会话持续很久后
 
 - 时机：`session_start` 记录 `lastRecapAt`；每次 `turn_end` 检查 `now - lastRecapAt >= autoRecapIntervalMinutes`（默认 **50 分钟**）；
-- 满足条件且对话至少 3 条消息时，生成一次 recap，随后重置计时；
+- 满足条件且会话已有消息时，生成一次 recap，随后重置计时（仅历史为空的刚进入会话状态跳过——recap 在其余任何时候都支持）；
 - `recapInProgress` 互斥标志防止手动/自动并发重复触发；
 - 可通过配置关闭（`autoRecap: false`）。
 

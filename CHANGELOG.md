@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-10-13
+
+### Fixed
+- **Recap now works at any time**: removed the arbitrary "at least 3 messages" threshold; only a brand-new session with an empty history is skipped (with a clear notice for `/recap`).
+- **Current-model fallback**: when none of the lightweight models (`gemini-2.5-flash` / `gpt-4.1-mini` / `claude-3-5-haiku-20241022`) is configured, the recap side-query falls back to the current session model instead of failing.
+
 ## [0.1.0] - 2026-10-13
 
 ### Added

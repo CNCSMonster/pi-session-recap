@@ -41,7 +41,7 @@ A notification like this appears (15 s, non-blocking):
 
 Once a session has been running for **50 minutes** (default), the next completed turn triggers a recap automatically. After each auto-recap the timer resets.
 
-A recap is generated only when the conversation has at least 3 user/assistant messages.
+Recap works at any time; the only exception is a brand-new session with an empty history. Manual `/recap` is never rate-limited.
 
 ## Configuration
 
@@ -71,7 +71,7 @@ Malformed JSON or invalid values silently fall back to defaults (never throws).
 - **Cache friendly**: the recap is a side-query that reuses your main system prompt and appends one guidance message at the tail — the prefix stays cacheable. No special recap system prompt.
 - **Full context, including compaction summaries**: the recap reads the whole current branch, so it reflects the big picture, not just the last few turns.
 - **Never written to history**: results are shown via notification only; your transcript stays clean.
-- **Lightweight model**: prefers `gemini-2.5-flash`, then `gpt-4.1-mini`, then `claude-3-5-haiku-20241022` — whichever has auth configured.
+- **Lightweight model**: prefers `gemini-2.5-flash`, then `gpt-4.1-mini`, then `claude-3-5-haiku-20241022`; if none is configured, falls back to the current session model so recap works with any provider setup.
 
 ## Requirements
 

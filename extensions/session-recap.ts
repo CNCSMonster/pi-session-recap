@@ -47,12 +47,12 @@ let currentConfig: RecapConfig = { ...DEFAULT_CONFIG };
 async function generateRecap(ctx: ExtensionCommandContext): Promise<string | null> {
   const branch = ctx.sessionManager.getBranch();
 
-  // 1. 对话内容太少不值得 recap
+  // 1. 只有刚进入会话（历史为空）才不值得 recap，其余任何时候都支持
   const messageEntries = branch.filter(
     (e) => e.type === "message" && (e.message?.role === "user" || e.message?.role === "assistant")
   );
-  if (messageEntries.length < 3) {
-    return null;
+  if (messageEntries.length === 0) {
+    return "__EMPTY_SESSION__";
   }
 
   // 2. 取完整分支上下文（含 compaction summary）
@@ -86,14 +86,15 @@ ${conversationText}
     },
   ];
 
-  // 4. 优先选轻量模型做 side-query（便宜、快）
+  // 4. 优先选轻量模型做 side-query（便宜、快）；找不到时兑底当前会话模型
   const model =
     ctx.modelRegistry.find("google", "gemini-2.5-flash") ??
     ctx.modelRegistry.find("openai", "gpt-4.1-mini") ??
-    ctx.modelRegistry.find("anthropic", "claude-3-5-haiku-20241022");
+    ctx.modelRegistry.find("anthropic", "claude-3-5-haiku-20241022") ??
+    ctx.model;
 
   if (!model) {
-    ctx.ui.notify("No suitable model found for recap", "warning");
+    ctx.ui.notify("No model available for recap", "warning");
     return null;
   }
   if (!ctx.modelRegistry.hasConfiguredAuth(model)) {
@@ -154,8 +155,12 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify("Generating recap...", "info");
 
       const recap = await generateRecap(ctx);
+      if (recap === "__EMPTY_SESSION__") {
+        ctx.ui.notify("刚进入会话，还没有可回忆的内容。", "warning");
+        return;
+      }
       if (!recap) {
-        ctx.ui.notify("Not enough conversation context for a recap yet.", "warning");
+        ctx.ui.notify("Recap generation failed, see errors above.", "warning");
         return;
       }
 
@@ -183,17 +188,17 @@ export default function (pi: ExtensionAPI) {
     const intervalMs = currentConfig.autoRecapIntervalMinutes * 60 * 1000;
     if (Date.now() - lastRecapAt < intervalMs) return;
 
-    // 对话内容太少不触发
+    // 刚进入会话（历史为空）不触发
     const branch = ctx.sessionManager.getBranch();
     const messageCount = branch.filter(
       (e) => e.type === "message" && (e.message?.role === "user" || e.message?.role === "assistant")
     ).length;
-    if (messageCount < 3) return;
+    if (messageCount === 0) return;
 
     recapInProgress = true;
     try {
       const recap = await generateRecap(ctx);
-      if (recap) {
+      if (recap && recap !== "__EMPTY_SESSION__") {
         lastRecapAt = Date.now();
         showRecap(ctx, recap);
       }

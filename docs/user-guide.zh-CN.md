@@ -40,7 +40,7 @@ cp extensions/config.ts     ~/.pi/agent/extensions/session-recap/config.ts
 ### 自动触发
 
 会话持续 **50 分钟**（默认）后，下一轮对话结束时自动生成一次 recap，之后计时重置。
-对话至少有 3 条 user/assistant 消息才会生成。
+对话除刚进入会话（历史为空）外，任何时候都可生成；手动 `/recap` 不受间隔限制。
 
 ## 配置
 
@@ -70,7 +70,7 @@ JSON 损坏或字段非法时静默回落默认值，不会抛错。
 - **复用 prompt cache**：recap 是 side-query，沿用主对话 system prompt，仅在末尾追加一条引导消息——前缀保持可缓存，不用专用 recap system prompt。
 - **取完整分支上下文（含 compaction summary）**：不是只取最后几条，长会话不会丢"大目标"。
 - **不写入历史**：结果只通过通知展示，对话记录保持干净。
-- **轻量模型**：优先 `gemini-2.5-flash`，其次 `gpt-4.1-mini`，再次 `claude-3-5-haiku-20241022`——取第一个已配置认证的。
+- **轻量模型**：优先 `gemini-2.5-flash`，其次 `gpt-4.1-mini`，再次 `claude-3-5-haiku-20241022`，全部缺失时兑底当前会话模型——保证任何 provider 配置下都能生成。
 
 ## 依赖
 
