@@ -61,9 +61,13 @@ recap：  system_prompt + history[0..N] + "请用 2-3 句话总结一下这个�
 # 开发期显式加载
 pi --extension /path/to/pi-session-recap/extensions/session-recap.ts
 
-# 或全局安装：两个文件必须放在同一目录
-cp extensions/session-recap.ts extensions/config.ts ~/.pi/agent/extensions/
+# 或全局安装（子目录入口）
+mkdir -p ~/.pi/agent/extensions/session-recap
+cp extensions/session-recap.ts ~/.pi/agent/extensions/session-recap/index.ts
+cp extensions/config.ts        ~/.pi/agent/extensions/session-recap/config.ts
 ```
+
+> **为什么用子目录？** Pi 会把 `~/.pi/agent/extensions/` 顶层的每个 `.ts` 文件都当作独立扩展加载；`config.ts` 没有 default 导出，平铺拷贝会触发加载报错。子目录模式让它只是内部模块（目录内用软链同样可行）。
 
 ---
 

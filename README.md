@@ -61,9 +61,13 @@ recap side-query:    system_prompt + history[0..N] + "请用 2-3 句话总结一
 # Load explicitly (development)
 pi --extension /path/to/pi-session-recap/extensions/session-recap.ts
 
-# Or install globally: both files must sit in the same directory
-cp extensions/session-recap.ts extensions/config.ts ~/.pi/agent/extensions/
+# Or install globally as a subdirectory entry point
+mkdir -p ~/.pi/agent/extensions/session-recap
+cp extensions/session-recap.ts ~/.pi/agent/extensions/session-recap/index.ts
+cp extensions/config.ts        ~/.pi/agent/extensions/session-recap/config.ts
 ```
+
+> **Why a subdirectory?** Pi loads every top-level `.ts` file in `~/.pi/agent/extensions/` as its own extension; `config.ts` has no default export and would raise a load error if copied flat. The subdirectory pattern keeps it an internal module (symlinks inside the directory work too).
 
 ---
 

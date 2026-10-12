@@ -12,11 +12,13 @@
 # 方式 A：开发期显式加载
 pi --extension /path/to/pi-session-recap/extensions/session-recap.ts
 
-# 方式 B：全局安装
-cp extensions/session-recap.ts extensions/config.ts ~/.pi/agent/extensions/
+# 方式 B：全局安装（子目录入口）
+mkdir -p ~/.pi/agent/extensions/session-recap
+cp extensions/session-recap.ts ~/.pi/agent/extensions/session-recap/index.ts
+cp extensions/config.ts     ~/.pi/agent/extensions/session-recap/config.ts
 ```
 
-两个文件（`session-recap.ts` 与 `config.ts`）必须放在同一目录，入口通过 `./config.ts` 引入。
+> **为什么用子目录？** Pi 会把 `~/.pi/agent/extensions/` 顶层的每个 `.ts` 文件都当作独立扩展加载；`config.ts` 没有 default 导出，平铺拷贝会触发加载报错。子目录模式（`index.ts` 为入口）让 `config.ts` 只作为内部模块。目录内用软链同样可行。
 
 ## 使用
 

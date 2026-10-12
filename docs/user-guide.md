@@ -12,11 +12,13 @@ In a long conversation, early context gets compressed away by compaction, and af
 # Option A: load explicitly during development
 pi --extension /path/to/pi-session-recap/extensions/session-recap.ts
 
-# Option B: global install as a Pi extension
-cp extensions/session-recap.ts extensions/config.ts ~/.pi/agent/extensions/
+# Option B: global install (subdirectory entry point)
+mkdir -p ~/.pi/agent/extensions/session-recap
+cp extensions/session-recap.ts ~/.pi/agent/extensions/session-recap/index.ts
+cp extensions/config.ts     ~/.pi/agent/extensions/session-recap/config.ts
 ```
 
-Both files (`session-recap.ts` and `config.ts`) must sit in the same directory, because the entry imports `./config.ts`.
+> **Why a subdirectory?** Pi loads every top-level `.ts` file in `~/.pi/agent/extensions/` as its own extension. `config.ts` has no default export and would raise a load error if copied flat. The subdirectory pattern (`index.ts` as the entry) keeps `config.ts` as an internal module. Symlinks inside the subdirectory work as well.
 
 ## Usage
 
