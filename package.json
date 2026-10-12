@@ -1,0 +1,33 @@
+{
+  "name": "pi-session-recap",
+  "version": "0.1.0",
+  "description": "Session recap for Pi Coding Agent: recall what you were doing in long conversations, with prompt-cache-friendly side-query design",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "session",
+    "recap",
+    "summary",
+    "memory"
+  ],
+  "author": "CNCSMonster",
+  "license": "MIT",
+  "type": "module",
+  "main": "extensions/session-recap.ts",
+  "scripts": {
+    "test": "node --test --experimental-strip-types tests/*.test.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/session-recap.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CNCSMonster/pi-session-recap.git"
+  }
+}
