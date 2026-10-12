@@ -1,6 +1,6 @@
 {
   "name": "pi-session-recap",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Session recap for Pi Coding Agent: recall what you were doing in long conversations, with prompt-cache-friendly side-query design",
   "keywords": [
     "pi-package",

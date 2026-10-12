@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-10-13
+
+### Fixed
+- **Proper model fallback chain**: lightweight model candidates are now checked one by one for "exists **and** authenticated". Previously the first `find()` result was taken even when unauthenticated, causing recap to fail instantly on setups where those models appear in the catalog without credentials.
+
 ## [0.1.1] - 2026-10-13
 
 ### Fixed

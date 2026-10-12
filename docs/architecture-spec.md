@@ -60,8 +60,7 @@ Recap side-query cache key：
 
 ### 2.4 模型选择
 
-按优先级回退：`google/gemini-2.5-flash` → `openai/gpt-4.1-mini` → `anthropic/claude-3-5-haiku-20241022` → **当前会话模型**。
-前三个取第一个已配置认证的可用模型（轻量、便宜、快）；全部缺失时兑底当前会话模型，保证任何 provider 配置下 recap 都可用。
+按顺序逐个检查候选（存在**且已认证**）：`google/gemini-2.5-flash` → `openai/gpt-4.1-mini` → `anthropic/claude-3-5-haiku-20241024`，取第一个通过者；全部不可用时兑底当前会话模型，保证任何 provider 配置下 recap 都可用。
 
 ---
 

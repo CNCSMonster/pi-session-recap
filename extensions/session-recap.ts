@@ -86,12 +86,13 @@ ${conversationText}
     },
   ];
 
-  // 4. 优先选轻量模型做 side-query（便宜、快）；找不到时兑底当前会话模型
-  const model =
-    ctx.modelRegistry.find("google", "gemini-2.5-flash") ??
-    ctx.modelRegistry.find("openai", "gpt-4.1-mini") ??
-    ctx.modelRegistry.find("anthropic", "claude-3-5-haiku-20241022") ??
-    ctx.model;
+  // 4. 逐个候选检查「存在且已认证」，全部不可用时兑底当前会话模型
+  const candidates = [
+    ctx.modelRegistry.find("google", "gemini-2.5-flash"),
+    ctx.modelRegistry.find("openai", "gpt-4.1-mini"),
+    ctx.modelRegistry.find("anthropic", "claude-3-5-haiku-20241022"),
+  ];
+  const model = candidates.find((m) => m && ctx.modelRegistry.hasConfiguredAuth(m)) ?? ctx.model;
 
   if (!model) {
     ctx.ui.notify("No model available for recap", "warning");
