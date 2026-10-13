@@ -21,7 +21,6 @@ import { join } from "node:path";
 import { uuidv7 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
-  convertToLlm,
   serializeConversation,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
@@ -55,9 +54,9 @@ async function generateRecap(ctx: ExtensionCommandContext): Promise<string | nul
     return "__EMPTY_SESSION__";
   }
 
-  // 2. 取完整分支上下文（含 compaction summary）
-  const llmMessages = convertToLlm(branch);
-  const conversationText = serializeConversation(llmMessages);
+  // 2. 取 compaction 感知的完整模型上下文（含 summary，与模型实际所见一致）
+  const projection = ctx.sessionManager.buildSessionProjection();
+  const conversationText = serializeConversation(projection.messages);
   if (!conversationText.trim()) {
     return null;
   }
