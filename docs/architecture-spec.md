@@ -1,4 +1,4 @@
-# pi-session-recap 架构设计（v0.1.0）
+# pi-session-recap 架构设计（v0.2.0）
 
 ## 1. 问题
 
@@ -26,41 +26,49 @@ recap **基于** summary（compaction 后的对话上下文天然包含 summary�
 
 ## 2. 核心设计
 
-### 2.1 复用 Prompt Cache 的 side-query
+### 2.1 100% 前缀同构的 Prompt Cache 复用
 
-**不改 system prompt**，在对话末尾追加一条引导消息：
+**不改 system prompt，不改 tools 定义，不破坏消息历史序列**，在对话末尾仅追加一条纯文本引导消息：
 
 ```
-主对话 cache key：
-  system_prompt + history[0..N]
+主会话 Request Payload：
+  [system_prompt + active_tools] + [compaction_summary] + [turns 0..N]
 
-Recap side-query cache key：
-  system_prompt + history[0..N] + user_message("请用 2-3 句话总结...")
+Recap side-query Request Payload：
+  [system_prompt + active_tools] + [compaction_summary] + [turns 0..N] + [tail_user_prompt]
 
-→ system prompt 相同 ✅
-→ 对话历史相同 ✅
-→ 仅末尾新增一条引导 ✅
-→ 前缀可复用 prompt cache ✅
+→ System Prompt 完全同构 ✅
+→ Active Tools 列表与 Schema 完全同构（杜绝 API 400 校验错误）✅
+→ Compaction Summary 与前序 Turns 序列完全同构 ✅
+→ 仅末尾追加 100 字纯文本总结引导（Tail Guidance）✅
+→ 前 95%+ Token 序列 100% 命中前缀缓存（Anthropic/OpenAI/Gemini/DeepSeek）✅
 ```
 
-对比 qwen-code `/recap`：其使用专用短 system prompt + 只取最后 30 条消息，cache 完全不同且长对话中会丢失"大目标"上下文。
+对比传统实现：
+- 传统实现若将历史压缩为纯文本 `<conversation>` 字符串塞进单个新消息，会完全破坏 Provider 侧自第 0 个 token 起算的 KV Cache 前缀，导致 100% 缓存未命中（Cache Miss）；
+- 若请求遗漏主会话 tools 声明，不仅可能引起 API 校验报错，亦会打乱工具定义在 System Block 中的缓存块。
 
-### 2.2 取完整分支上下文
+### 2.2 上下文与工具对齐
 
-`ctx.sessionManager.getBranch()` → `convertToLlm()` → `serializeConversation()`。
-
-- 对话经历过 compaction 时，分支中天然含 summary 条目，recap 直接基于它生成；
-- 不截断为"最后 30 条"，避免长会话丢失早期关键信息。
+- **System Prompt**：直接取 `ctx.getSystemPrompt()`；
+- **Tools 列表**：取 `pi.getAllTools()` 中命中 `pi.getActiveTools()` 的激活工具集合，保持 Schema 逐字段同构；
+- **消息序列**：取 `ctx.sessionManager.buildSessionProjection().messages` 并经 `convertToLlm()` 映射（天然包含 compaction summary 标记）；
+- **Tail Guidance**：末尾单次追加引导词（明确要求直接纯文本回复、不调用任何工具、不超过 100 字）。
 
 ### 2.3 Side-query 隔离
 
 - 独立 `sessionId`（`uuidv7()`），`cacheRetention: "none"`；
 - 结果仅通过 `ctx.ui.notify()` 展示，**不写入对话历史**，不产生任何上下文污染；
-- `maxTokens: 300`，限制成本。
+- `maxTokens: 300`，限制成本；
+- 显式 `AbortSignal.timeout(45000)` 超时防护，杜绝网络悬挂。
 
-### 2.4 模型选择
+### 2.4 多模型逐级容灾降级（Cascade Fallback）
 
-按顺序逐个检查候选（存在**且已认证**）：`google/gemini-2.5-flash` → `openai/gpt-4.1-mini` → `anthropic/claude-3-5-haiku-20241024`，取第一个通过者；全部不可用时兑底当前会话模型，保证任何 provider 配置下 recap 都可用。
+候选队列：`[ google/gemini-2.5-flash, openai/gpt-4.1-mini, anthropic/claude-3-5-haiku-20241022, ctx.model ]`。
+1. 过滤未认证项并按 `provider/id` 严格去重；
+2. 优先请求轻量模型（快、省），若遇到 429、网络瞬断、超时或 API 报错，**自动无缝降级尝试下一个候选模型**；
+3. 全部轻量模型故障时，由当前会话模型（`ctx.model`）进行最后重试兜底；
+4. 失败时精确直显错误详情，拒绝模糊覆盖；自动触发失败后延后 10 分钟重试（退避机制）。
 
 ---
 

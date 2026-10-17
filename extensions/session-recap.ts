@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { uuidv7 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
-  serializeConversation,
+  convertToLlm,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { loadConfig, CONFIG_FILE_NAME, DEFAULT_CONFIG, type RecapConfig } from "./config.ts";
@@ -43,7 +43,13 @@ let currentConfig: RecapConfig = { ...DEFAULT_CONFIG };
 // 核心函数：生成 Recap
 // ============================================================================
 
-async function generateRecap(ctx: ExtensionCommandContext): Promise<string | null> {
+interface GenerateRecapResult {
+  recap: string | null;
+  error: string | null;
+  emptySession?: boolean;
+}
+
+async function generateRecap(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<GenerateRecapResult> {
   const branch = ctx.sessionManager.getBranch();
 
   // 1. 只有刚进入会话（历史为空）才不值得 recap，其余任何时候都支持
@@ -51,18 +57,28 @@ async function generateRecap(ctx: ExtensionCommandContext): Promise<string | nul
     (e) => e.type === "message" && (e.message?.role === "user" || e.message?.role === "assistant")
   );
   if (messageEntries.length === 0) {
-    return "__EMPTY_SESSION__";
+    return { recap: null, error: null, emptySession: true };
   }
 
-  // 2. 取 compaction 感知的完整模型上下文（含 summary，与模型实际所见一致）
+  // 2. 构建与主会话 100% 同构的前缀上下文（最大化 Prompt Cache 复用）
+  //    - systemPrompt：与主会话完全一致
+  //    - tools：与主会话声明的激活工具列表完全一致（避免缺少工具导致 API 报 400 或破坏前缀缓存）
+  //    - messages：完整包含 compaction summary 与历史交互，末尾仅追加一条纯文本引导用户消息
+  const systemPrompt = ctx.getSystemPrompt();
+
+  const activeNames = new Set(pi.getActiveTools());
+  const activeTools = pi.getAllTools()
+    .filter((t) => activeNames.has(t.name))
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    }));
+
   const projection = ctx.sessionManager.buildSessionProjection();
-  const conversationText = serializeConversation(projection.messages);
-  if (!conversationText.trim()) {
-    return null;
-  }
+  const llmMessages = convertToLlm(projection.messages);
 
-  // 3. 末尾追加引导消息（system prompt 不动，前缀可复用 prompt cache）
-  const recapPrompt = `请用 2-3 句话总结一下这个对话的内容，帮我快速回忆：
+  const tailPrompt = `请用 2-3 句话总结一下我们到目前为止的对话进展，帮我快速回忆：
 - 大目标是什么
 - 完成了什么
 - 还在做什么（如果有未完成的）
@@ -70,62 +86,74 @@ async function generateRecap(ctx: ExtensionCommandContext): Promise<string | nul
 
 要求：
 - 简洁，总共不超过 100 字
-- 不要 markdown 格式
-- 直接说内容，不要说"这个对话在..."
+- 不要调用任何工具，直接回复纯文本
+- 直接说内容，不要说"这个对话在..."`;
 
-<conversation>
-${conversationText}
-</conversation>`;
+  const tailUserMessage = {
+    role: "user" as const,
+    content: [{ type: "text" as const, text: tailPrompt }],
+    timestamp: Date.now(),
+  };
 
-  const recapMessages = [
-    {
-      role: "user" as const,
-      content: [{ type: "text" as const, text: recapPrompt }],
-      timestamp: Date.now(),
-    },
-  ];
+  const requestContext = {
+    systemPrompt,
+    tools: activeTools,
+    messages: [...llmMessages, tailUserMessage],
+  };
 
-  // 4. 逐个候选检查「存在且已认证」，全部不可用时兑底当前会话模型
-  const candidates = [
+  // 3. 多模型候选队列：轻量模型优先，自动逐级降级容灾，最后由主会话模型兜底
+  const rawCandidates = [
     ctx.modelRegistry.find("google", "gemini-2.5-flash"),
     ctx.modelRegistry.find("openai", "gpt-4.1-mini"),
     ctx.modelRegistry.find("anthropic", "claude-3-5-haiku-20241022"),
+    ctx.model,
   ];
-  const model = candidates.find((m) => m && ctx.modelRegistry.hasConfiguredAuth(m)) ?? ctx.model;
 
-  if (!model) {
-    ctx.ui.notify("No model available for recap", "warning");
-    return null;
-  }
-  if (!ctx.modelRegistry.hasConfiguredAuth(model)) {
-    ctx.ui.notify(`No authentication configured for ${model.id}`, "warning");
-    return null;
+  const seen = new Set<string>();
+  const candidates = rawCandidates.filter((m): m is NonNullable<typeof m> => {
+    if (!m || !ctx.modelRegistry.hasConfiguredAuth(m)) return false;
+    const key = `${m.provider}/${m.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    return { recap: null, error: "没有已配置认证的可用模型用于生成回忆" };
   }
 
-  try {
-    // 5. side-query：独立 sessionId，不写入主对话历史
-    const response = await ctx.modelRegistry.complete(
-      model,
-      { messages: recapMessages },
-      {
-        maxTokens: 300,
-        cacheRetention: "none",
-        sessionId: uuidv7(),
+  // 4. 逐个模型发起 side-query，捕获单点异常并自动回退重试
+  let lastError = "";
+  for (const candidate of candidates) {
+    try {
+      const response = await ctx.modelRegistry.complete(
+        candidate,
+        requestContext,
+        {
+          maxTokens: 300,
+          cacheRetention: "none",
+          sessionId: uuidv7(),
+          signal: AbortSignal.timeout(45000), // 45 秒超时控制，防止请求挂起
+        }
+      );
+
+      const recap = response.content
+        .filter((c): c is { type: "text"; text: string } => c.type === "text")
+        .map((c) => c.text)
+        .join("\n")
+        .trim();
+
+      if (recap) {
+        return { recap, error: null };
       }
-    );
-
-    const recap = response.content
-      .filter((c): c is { type: "text"; text: string } => c.type === "text")
-      .map((c) => c.text)
-      .join("\n")
-      .trim();
-
-    return recap || null;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    ctx.ui.notify(`Recap generation failed: ${message}`, "error");
-    return null;
+    } catch (err: any) {
+      lastError = err instanceof Error ? err.message : String(err);
+      // 当前模型失败，继续尝试下一个候选模型（容灾降级）
+      continue;
+    }
   }
+
+  return { recap: null, error: lastError || "模型未返回有效总结内容" };
 }
 
 function showRecap(ctx: ExtensionCommandContext, recap: string): void {
@@ -154,13 +182,13 @@ export default function (pi: ExtensionAPI) {
 
       ctx.ui.notify("Generating recap...", "info");
 
-      const recap = await generateRecap(ctx);
-      if (recap === "__EMPTY_SESSION__") {
+      const { recap, error, emptySession } = await generateRecap(ctx, pi);
+      if (emptySession) {
         ctx.ui.notify("刚进入会话，还没有可回忆的内容。", "warning");
         return;
       }
       if (!recap) {
-        ctx.ui.notify("Recap generation failed, see errors above.", "warning");
+        ctx.ui.notify(`Recap generation failed: ${error || "未知原因"}`, "error");
         return;
       }
 
@@ -197,10 +225,13 @@ export default function (pi: ExtensionAPI) {
 
     recapInProgress = true;
     try {
-      const recap = await generateRecap(ctx);
-      if (recap && recap !== "__EMPTY_SESSION__") {
+      const { recap, emptySession } = await generateRecap(ctx, pi);
+      if (recap && !emptySession) {
         lastRecapAt = Date.now();
         showRecap(ctx, recap);
+      } else if (!emptySession) {
+        // 自动触发失败退避：将下次触发时间推迟 10 分钟，避免每轮会话重复轰炸 API
+        lastRecapAt = Date.now() - intervalMs + 10 * 60 * 1000;
       }
     } finally {
       recapInProgress = false;

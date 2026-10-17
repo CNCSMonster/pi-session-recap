@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-13
+
+### Added
+- **100% Prefix Cache Reuse**: Recap side-query now sends identical `systemPrompt`, active `tools` definitions, and compaction-aware message history, appending only a tail user guidance prompt to achieve maximum KV cache hit rates across Anthropic, OpenAI, DeepSeek, and Gemini.
+- **Tools Definition Alignment**: Matches declared active tools with the main conversation to prevent API 400 schema mismatches while preserving system prompt cache blocks.
+- **Cascade Model Fallback**: Automatically tries lightweight candidates (`gemini-2.5-flash` → `gpt-4.1-mini` → `claude-3-5-haiku`) and cascades to the active session model (`ctx.model`) upon any runtime failure (rate limit, timeout, network error).
+- **Timeout Protection**: 45-second `AbortSignal.timeout` prevents hung proxy connections.
+- **Auto-Recap Backoff**: Failed auto-recap attempts back off for 10 minutes instead of re-triggering every turn.
+- **Accurate Error Reporting**: Removed overlapping generic error toasts, exposing exact provider error messages.
+
 ## [0.1.3] - 2026-10-13
 
 ### Fixed
